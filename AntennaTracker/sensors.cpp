@@ -51,7 +51,9 @@ void Tracker::update_GPS(void)
                 // Now have an initial GPS position
                 // use it as the HOME position in future startups
                 current_loc = gps.location();
-                IGNORE_RETURN(set_home(current_loc));
+                if (!set_home(current_loc)) {
+                    // silently ignored
+                }
                 ground_start_count = 0;
             }
         }

@@ -59,12 +59,14 @@ const AP_Scheduler::Task Tracker::scheduler_tasks[] = {
     SCHED_TASK_CLASS(GCS,              (GCS*)&tracker._gcs, update_receive, 50, 1700, 45),
     SCHED_TASK_CLASS(GCS,              (GCS*)&tracker._gcs, update_send,    50, 3000, 50),
     SCHED_TASK_CLASS(AP_Baro,           &tracker.barometer, accumulate,     50,  900, 55),
-#if HAL_LOGGING_ENABLED
     SCHED_TASK(ten_hz_logging_loop,    10,    300, 60),
+#if LOGGING_ENABLED == ENABLED
     SCHED_TASK_CLASS(AP_Logger,   &tracker.logger, periodic_tasks, 50,  300, 65),
 #endif
     SCHED_TASK_CLASS(AP_InertialSensor, &tracker.ins,       periodic,       50,   50, 70),
+    SCHED_TASK_CLASS(AP_Notify,         &tracker.notify,    update,         50,  100, 75),
     SCHED_TASK(one_second_loop,         1,   3900, 80),
+    SCHED_TASK_CLASS(Compass,          &tracker.compass,              cal_update, 50, 100, 85),
     SCHED_TASK(stats_update,            1,    200, 90),
 };
 
@@ -79,6 +81,9 @@ void Tracker::get_scheduler_tasks(const AP_Scheduler::Task *&tasks,
 
 void Tracker::one_second_loop()
 {
+    // make it possible to change orientation at runtime
+    ahrs.update_orientation();
+
     // sync MAVLink system ID
     mavlink_system.sysid = g.sysid_this_mav;
 
@@ -103,11 +108,8 @@ void Tracker::one_second_loop()
     set_likely_flying(hal.util->get_soft_armed());
 
     AP_Notify::flags.flying = hal.util->get_soft_armed();
-
-    g.pidYaw2Srv.set_notch_sample_rate(AP::scheduler().get_filtered_loop_rate_hz());
 }
 
-#if HAL_LOGGING_ENABLED
 void Tracker::ten_hz_logging_loop()
 {
     if (should_log(MASK_LOG_IMU)) {
@@ -123,7 +125,6 @@ void Tracker::ten_hz_logging_loop()
         logger.Write_RCOUT();
     }
 }
-#endif
 
 Mode *Tracker::mode_from_mode_num(const Mode::Number num)
 {
@@ -159,10 +160,16 @@ Mode *Tracker::mode_from_mode_num(const Mode::Number num)
 */
 void Tracker::stats_update(void)
 {
-    AP::stats()->set_flying(hal.util->get_soft_armed());
+    stats.set_flying(hal.util->get_soft_armed());
+    stats.update();
 }
 
 const AP_HAL::HAL& hal = AP_HAL::get_HAL();
+
+Tracker::Tracker(void)
+    : logger(g.log_bitmask)
+{
+}
 
 Tracker tracker;
 AP_Vehicle& vehicle = tracker;
