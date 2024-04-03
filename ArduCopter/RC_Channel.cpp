@@ -37,14 +37,9 @@ void RC_Channel_Copter::mode_switch_changed(modeswitch_pos_t new_pos)
     }
 }
 
-bool RC_Channels_Copter::in_rc_failsafe() const
-{
-    return copter.failsafe.radio;
-}
-
 bool RC_Channels_Copter::has_valid_input() const
 {
-    if (in_rc_failsafe()) {
+    if (copter.failsafe.radio) {
         return false;
     }
     if (copter.failsafe.radio_counter != 0) {
@@ -69,7 +64,7 @@ RC_Channel * RC_Channels_Copter::get_arming_channel(void) const
 }
 
 // init_aux_switch_function - initialize aux functions
-void RC_Channel_Copter::init_aux_function(const AUX_FUNC ch_option, const AuxSwitchPos ch_flag)
+void RC_Channel_Copter::init_aux_function(const aux_func_t ch_option, const AuxSwitchPos ch_flag)
 {
     // init channel options
     switch(ch_option) {
@@ -125,8 +120,6 @@ void RC_Channel_Copter::init_aux_function(const AUX_FUNC ch_option, const AuxSwi
     case AUX_FUNC::WINCH_ENABLE:
     case AUX_FUNC::AIRMODE:
     case AUX_FUNC::FORCEFLYING:
-    case AUX_FUNC::CUSTOM_CONTROLLER:
-    case AUX_FUNC::WEATHER_VANE_ENABLE:
         run_aux_function(ch_option, ch_flag, AuxFuncTriggerSource::INIT);
         break;
     default:
@@ -156,7 +149,7 @@ void RC_Channel_Copter::do_aux_function_change_mode(const Mode::Number mode,
 }
 
 // do_aux_function - implement the function invoked by auxiliary switches
-bool RC_Channel_Copter::do_aux_function(const AUX_FUNC ch_option, const AuxSwitchPos ch_flag)
+bool RC_Channel_Copter::do_aux_function(const aux_func_t ch_option, const AuxSwitchPos ch_flag)
 {
     switch(ch_option) {
         case AUX_FUNC::FLIP:
@@ -229,7 +222,7 @@ bool RC_Channel_Copter::do_aux_function(const AUX_FUNC ch_option, const AuxSwitc
                     // only altitude will matter to the AP mission script for takeoff.
                     if (copter.mode_auto.mission.add_cmd(cmd)) {
                         // log event
-                        LOGGER_WRITE_EVENT(LogEvent::SAVEWP_ADD_WP);
+                        AP::logger().Write_Event(LogEvent::SAVEWP_ADD_WP);
                     }
                 }
 
@@ -247,7 +240,7 @@ bool RC_Channel_Copter::do_aux_function(const AUX_FUNC ch_option, const AuxSwitc
                 // save command
                 if (copter.mode_auto.mission.add_cmd(cmd)) {
                     // log event
-                    LOGGER_WRITE_EVENT(LogEvent::SAVEWP_ADD_WP);
+                    AP::logger().Write_Event(LogEvent::SAVEWP_ADD_WP);
                 }
             }
 #endif
@@ -275,16 +268,16 @@ bool RC_Channel_Copter::do_aux_function(const AUX_FUNC ch_option, const AuxSwitc
 #if MODE_ACRO_ENABLED == ENABLED
             switch(ch_flag) {
                 case AuxSwitchPos::LOW:
-                    copter.g.acro_trainer.set((uint8_t)ModeAcro::Trainer::OFF);
-                    LOGGER_WRITE_EVENT(LogEvent::ACRO_TRAINER_OFF);
+                    copter.g.acro_trainer = (uint8_t)ModeAcro::Trainer::OFF;
+                    AP::logger().Write_Event(LogEvent::ACRO_TRAINER_OFF);
                     break;
                 case AuxSwitchPos::MIDDLE:
-                    copter.g.acro_trainer.set((uint8_t)ModeAcro::Trainer::LEVELING);
-                    LOGGER_WRITE_EVENT(LogEvent::ACRO_TRAINER_LEVELING);
+                    copter.g.acro_trainer = (uint8_t)ModeAcro::Trainer::LEVELING;
+                    AP::logger().Write_Event(LogEvent::ACRO_TRAINER_LEVELING);
                     break;
                 case AuxSwitchPos::HIGH:
-                    copter.g.acro_trainer.set((uint8_t)ModeAcro::Trainer::LIMITED);
-                    LOGGER_WRITE_EVENT(LogEvent::ACRO_TRAINER_LIMITED);
+                    copter.g.acro_trainer = (uint8_t)ModeAcro::Trainer::LIMITED;
+                    AP::logger().Write_Event(LogEvent::ACRO_TRAINER_LIMITED);
                     break;
             }
 #endif
@@ -333,9 +326,11 @@ bool RC_Channel_Copter::do_aux_function(const AUX_FUNC ch_option, const AuxSwitc
             switch (ch_flag) {
                 case AuxSwitchPos::LOW:
                     copter.parachute.enabled(false);
+                    AP::logger().Write_Event(LogEvent::PARACHUTE_DISABLED);
                     break;
                 case AuxSwitchPos::MIDDLE:
                     copter.parachute.enabled(true);
+                    AP::logger().Write_Event(LogEvent::PARACHUTE_ENABLED);
                     break;
                 case AuxSwitchPos::HIGH:
                     copter.parachute.enabled(true);
@@ -396,7 +391,7 @@ bool RC_Channel_Copter::do_aux_function(const AUX_FUNC ch_option, const AuxSwitc
             break;
 
         case AUX_FUNC::PRECISION_LOITER:
-#if AC_PRECLAND_ENABLED && MODE_LOITER_ENABLED == ENABLED
+#if PRECISION_LANDING == ENABLED && MODE_LOITER_ENABLED == ENABLED
             switch (ch_flag) {
                 case AuxSwitchPos::HIGH:
                     copter.mode_loiter.set_precision_loiter_enabled(true);
@@ -421,24 +416,24 @@ bool RC_Channel_Copter::do_aux_function(const AUX_FUNC ch_option, const AuxSwitc
 #if FRAME_CONFIG == HELI_FRAME
             switch (ch_flag) {
             case AuxSwitchPos::HIGH:
-                if (copter.flightmode->allows_inverted()) {
-                    copter.attitude_control->set_inverted_flight(true);
-                } else {
-                    gcs().send_text(MAV_SEVERITY_WARNING, "Inverted flight not available in %s mode", copter.flightmode->name());
-                }
+                copter.motors->set_inverted_flight(true);
+                copter.attitude_control->set_inverted_flight(true);
+                copter.heli_flags.inverted_flight = true;
                 break;
             case AuxSwitchPos::MIDDLE:
                 // nothing
                 break;
             case AuxSwitchPos::LOW:
+                copter.motors->set_inverted_flight(false);
                 copter.attitude_control->set_inverted_flight(false);
+                copter.heli_flags.inverted_flight = false;
                 break;
             }
 #endif
             break;
 
         case AUX_FUNC::WINCH_ENABLE:
-#if AP_WINCH_ENABLED
+#if WINCH_ENABLED == ENABLED
             switch (ch_flag) {
                 case AuxSwitchPos::HIGH:
                     // high switch position stops winch using rate control
@@ -519,7 +514,7 @@ bool RC_Channel_Copter::do_aux_function(const AUX_FUNC ch_option, const AuxSwitc
             break;
 
         case AUX_FUNC::FLOWHOLD:
-#if MODE_FLOWHOLD_ENABLED
+#if AP_OPTICALFLOW_ENABLED
             do_aux_function_change_mode(Mode::Number::FLOWHOLD, ch_flag);
 #endif
             break;
@@ -540,12 +535,12 @@ bool RC_Channel_Copter::do_aux_function(const AUX_FUNC ch_option, const AuxSwitc
             switch (ch_flag) {
                 case AuxSwitchPos::HIGH:
                     copter.standby_active = true;
-                    LOGGER_WRITE_EVENT(LogEvent::STANDBY_ENABLE);
+                    AP::logger().Write_Event(LogEvent::STANDBY_ENABLE);
                     gcs().send_text(MAV_SEVERITY_INFO, "Stand By Enabled");
                     break;
                 default:
                     copter.standby_active = false;
-                    LOGGER_WRITE_EVENT(LogEvent::STANDBY_DISABLE);
+                    AP::logger().Write_Event(LogEvent::STANDBY_DISABLE);
                     gcs().send_text(MAV_SEVERITY_INFO, "Stand By Disabled");
                     break;
                 }
@@ -618,28 +613,6 @@ bool RC_Channel_Copter::do_aux_function(const AUX_FUNC ch_option, const AuxSwitc
             }
             break;
 
-#if AC_CUSTOMCONTROL_MULTI_ENABLED == ENABLED
-        case AUX_FUNC::CUSTOM_CONTROLLER:
-            copter.custom_control.set_custom_controller(ch_flag == AuxSwitchPos::HIGH);
-            break;
-#endif
-
-#if WEATHERVANE_ENABLED == ENABLED
-    case AUX_FUNC::WEATHER_VANE_ENABLE: {
-        switch (ch_flag) {
-            case AuxSwitchPos::HIGH:
-                copter.g2.weathervane.allow_weathervaning(true);
-                break;
-            case AuxSwitchPos::MIDDLE:
-                break;
-            case AuxSwitchPos::LOW:
-                copter.g2.weathervane.allow_weathervaning(false);
-                break;
-        }
-        break;
-    }
-#endif
-
     default:
         return RC_Channel::do_aux_function(ch_option, ch_flag);
     }
@@ -683,7 +656,7 @@ void Copter::save_trim()
     float roll_trim = ToRad((float)channel_roll->get_control_in()/100.0f);
     float pitch_trim = ToRad((float)channel_pitch->get_control_in()/100.0f);
     ahrs.add_trim(roll_trim, pitch_trim);
-    LOGGER_WRITE_EVENT(LogEvent::SAVE_TRIM);
+    AP::logger().Write_Event(LogEvent::SAVE_TRIM);
     gcs().send_text(MAV_SEVERITY_INFO, "Trim saved");
 }
 

@@ -2,7 +2,7 @@
 
 // Code to integrate AC_Fence library with main ArduCopter code
 
-#if AP_FENCE_ENABLED
+#if AC_FENCE == ENABLED
 
 // fence_check - ask fence library to check for breaches and initiate the response
 // called at 1hz
@@ -79,11 +79,11 @@ void Copter::fence_check()
             }
         }
 
-        LOGGER_WRITE_ERROR(LogErrorSubsystem::FAILSAFE_FENCE, LogErrorCode(new_breaches));
+        AP::logger().Write_Error(LogErrorSubsystem::FAILSAFE_FENCE, LogErrorCode(new_breaches));
 
     } else if (orig_breaches) {
         // record clearing of breach
-        LOGGER_WRITE_ERROR(LogErrorSubsystem::FAILSAFE_FENCE, LogErrorCode::ERROR_RESOLVED);
+        AP::logger().Write_Error(LogErrorSubsystem::FAILSAFE_FENCE, LogErrorCode::ERROR_RESOLVED);
     }
 }
 

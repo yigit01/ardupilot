@@ -99,9 +99,7 @@ bool ModeSystemId::init(bool ignore_checks)
 
     gcs().send_text(MAV_SEVERITY_INFO, "SystemID Starting: axis=%d", (unsigned)axis);
 
-#if HAL_LOGGING_ENABLED
     copter.Log_Write_SysID_Setup(axis, waveform_magnitude, frequency_start, frequency_stop, time_fade_in, time_const_freq, time_record, time_fade_out);
-#endif
 
     return true;
 }
@@ -109,7 +107,7 @@ bool ModeSystemId::init(bool ignore_checks)
 // systemId_exit - clean up systemId controller before exiting
 void ModeSystemId::exit()
 {
-    // reset the feedforward enabled parameter to the initialized state
+    // reset the feedfoward enabled parameter to the initialized state
     attitude_control->bf_feedforward(att_bf_feedforward);
 }
 
@@ -263,7 +261,11 @@ void ModeSystemId::run()
     attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(target_roll, target_pitch, target_yaw_rate);
 
     // output pilot's throttle
-    attitude_control->set_throttle_out(pilot_throttle_scaled, !copter.is_tradheli(), g.throttle_filt);
+    if (copter.is_tradheli()) {
+        attitude_control->set_throttle_out(pilot_throttle_scaled, false, g.throttle_filt);
+    } else {
+        attitude_control->set_throttle_out(pilot_throttle_scaled, true, g.throttle_filt);
+    }
 
     if (log_subsample <= 0) {
         log_data();
@@ -297,7 +299,6 @@ void ModeSystemId::log_data() const
 
     // Full rate logging of attitude, rate and pid loops
     copter.Log_Write_Attitude();
-    copter.Log_Write_PIDS();
 }
 
 #endif

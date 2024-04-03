@@ -1,7 +1,5 @@
 #include "Copter.h"
 
-#include <AP_Stats/AP_Stats.h>              // statistics library
-
 // Code to detect a crash main ArduCopter code
 #define LAND_CHECK_ANGLE_ERROR_DEG  30.0f       // maximum angle error to be considered landing
 #define LAND_CHECK_LARGE_ANGLE_CD   1500.0f     // maximum angle target to be considered landing
@@ -16,7 +14,7 @@ static uint32_t land_detector_count = 0;
 void Copter::update_land_and_crash_detectors()
 {
     // update 1hz filtered acceleration
-    Vector3f accel_ef = ahrs.get_accel_ef();
+    Vector3f accel_ef = ahrs.get_accel_ef_blended();
     accel_ef.z += GRAVITY_MSS;
     land_accel_ef_filter.apply(accel_ef, scheduler.get_loop_period_s());
 
@@ -50,13 +48,10 @@ void Copter::update_land_detector()
     } else if (ap.land_complete) {
 #if FRAME_CONFIG == HELI_FRAME
         // if rotor speed and collective pitch are high then clear landing flag
-        if (!flightmode->is_taking_off() && motors->get_takeoff_collective() && motors->get_spool_state() == AP_Motors::SpoolState::THROTTLE_UNLIMITED) {
+        if (motors->get_takeoff_collective() && motors->get_spool_state() == AP_Motors::SpoolState::THROTTLE_UNLIMITED) {
 #else
         // if throttle output is high then clear landing flag
-        if (!flightmode->is_taking_off() && motors->get_throttle_out() > get_non_takeoff_throttle() && motors->get_spool_state() == AP_Motors::SpoolState::THROTTLE_UNLIMITED) {
-            // this should never happen because take-off should be detected at the flight mode level
-            // this here to highlight there is a bug or missing take-off detection
-            INTERNAL_ERROR(AP_InternalError::error_t::flow_of_control);
+        if (motors->get_throttle() > get_non_takeoff_throttle()) {
 #endif
             set_land_complete(false);
         }
@@ -65,7 +60,6 @@ void Copter::update_land_detector()
         land_detector_count = 0;
     } else {
 
-        float land_trigger_sec = LAND_DETECTOR_TRIGGER_SEC;
 #if FRAME_CONFIG == HELI_FRAME
         // check for both manual collective modes and modes that use altitude hold. For manual collective (called throttle
         // because multi's use throttle), check that collective pitch is below land min collective position or throttle stick is zero.
@@ -75,25 +69,14 @@ void Copter::update_land_detector()
         // check if landing
         const bool landing = flightmode->is_landing();
         bool motor_at_lower_limit = (flightmode->has_manual_throttle() && (motors->get_below_land_min_coll() || heli_flags.coll_stk_low) && fabsf(ahrs.get_roll()) < M_PI/2.0f)
-#if MODE_AUTOROTATE_ENABLED == ENABLED
-                                    || (flightmode->mode_number() == Mode::Number::AUTOROTATE && motors->get_below_land_min_coll())
-#endif
                                     || ((!force_flying || landing) && motors->limit.throttle_lower && pos_control->get_vel_desired_cms().z < 0.0f);
-        bool throttle_mix_at_min = true;
 #else
         // check that the average throttle output is near minimum (less than 12.5% hover throttle)
-        bool motor_at_lower_limit = motors->limit.throttle_lower;
-        bool throttle_mix_at_min = attitude_control->is_throttle_mix_min();
-        // set throttle_mix_at_min to true because throttle is never at mix min in airmode
-        // increase land_trigger_sec when using airmode
-        if (flightmode->has_manual_throttle() && air_mode == AirMode::AIRMODE_ENABLED) {
-            land_trigger_sec = LAND_AIRMODE_DETECTOR_TRIGGER_SEC;
-            throttle_mix_at_min = true;
-        }
+        bool motor_at_lower_limit = motors->limit.throttle_lower && attitude_control->is_throttle_mix_min();
 #endif
 
         uint8_t land_detector_scalar = 1;
-#if AP_LANDINGGEAR_ENABLED
+#if LANDING_GEAR_ENABLED == ENABLED
         if (landinggear.get_wow_state() != AP_LandingGear::LG_WOW_UNKNOWN) {
             // we have a WoW sensor so lets loosen the strictness of the landing detector
             land_detector_scalar = 2;
@@ -110,15 +93,15 @@ void Copter::update_land_detector()
         bool rangefinder_check = (!rangefinder_alt_ok() || rangefinder_state.alt_cm_filt.get() < LAND_RANGEFINDER_MIN_ALT_CM);
 
         // if we have weight on wheels (WoW) or ambiguous unknown. never no WoW
-#if AP_LANDINGGEAR_ENABLED
+#if LANDING_GEAR_ENABLED == ENABLED
         const bool WoW_check = (landinggear.get_wow_state() == AP_LandingGear::LG_WOW || landinggear.get_wow_state() == AP_LandingGear::LG_WOW_UNKNOWN);
 #else
         const bool WoW_check = true;
 #endif
 
-        if (motor_at_lower_limit && throttle_mix_at_min && accel_stationary && descent_rate_low && rangefinder_check && WoW_check) {
+        if (motor_at_lower_limit && accel_stationary && descent_rate_low && rangefinder_check && WoW_check) {
             // landed criteria met - increment the counter and check if we've triggered
-            if( land_detector_count < land_trigger_sec*scheduler.get_loop_rate_hz()) {
+            if( land_detector_count < ((float)LAND_DETECTOR_TRIGGER_SEC)*scheduler.get_loop_rate_hz()) {
                 land_detector_count++;
             } else {
                 set_land_complete(true);
@@ -141,17 +124,15 @@ void Copter::set_land_complete(bool b)
 
     land_detector_count = 0;
 
-#if HAL_LOGGING_ENABLED
     if(b){
         AP::logger().Write_Event(LogEvent::LAND_COMPLETE);
     } else {
         AP::logger().Write_Event(LogEvent::NOT_LANDED);
     }
-#endif
     ap.land_complete = b;
 
-#if AP_STATS_ENABLED
-    AP::stats()->set_flying(!b);
+#if STATS_ENABLED == ENABLED
+    g2.stats.set_flying(!b);
 #endif
 
     // tell AHRS flying state
@@ -174,7 +155,7 @@ void Copter::set_land_complete_maybe(bool b)
         return;
 
     if (b) {
-        LOGGER_WRITE_EVENT(LogEvent::LAND_COMPLETE_MAYBE);
+        AP::logger().Write_Event(LogEvent::LAND_COMPLETE_MAYBE);
     }
     ap.land_complete_maybe = b;
 }
@@ -193,7 +174,7 @@ void Copter::update_throttle_mix()
 
     if (flightmode->has_manual_throttle()) {
         // manual throttle
-        if (channel_throttle->get_control_in() <= 0 && air_mode != AirMode::AIRMODE_ENABLED) {
+        if (channel_throttle->get_control_in() <= 0 || air_mode == AirMode::AIRMODE_DISABLED) {
             attitude_control->set_throttle_mix_min();
         } else {
             attitude_control->set_throttle_mix_man();
