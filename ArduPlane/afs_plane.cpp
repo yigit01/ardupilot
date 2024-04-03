@@ -4,7 +4,7 @@
 
 #include "Plane.h"
 
-#if AP_ADVANCEDFAILSAFE_ENABLED
+#if ADVANCED_FAILSAFE == ENABLED
 
 /*
   setup radio_out values for all channels to termination values
@@ -84,7 +84,7 @@ void AP_AdvancedFailsafe_Plane::setup_IO_failsafe(void)
 #if HAL_QUADPLANE_ENABLED
     if (plane.quadplane.available()) {
         // setup AP_Motors outputs for failsafe
-        uint32_t mask = plane.quadplane.motors->get_motor_mask();
+        uint16_t mask = plane.quadplane.motors->get_motor_mask();
         hal.rcout->set_failsafe_pwm(mask, plane.quadplane.motors->get_pwm_output_min());
     }
 #endif
@@ -103,11 +103,4 @@ AP_AdvancedFailsafe::control_mode AP_AdvancedFailsafe_Plane::afs_mode(void)
     }
     return AP_AdvancedFailsafe::AFS_STABILIZED;
 }
-
-//to force entering auto mode when datalink loss 
- void AP_AdvancedFailsafe_Plane::set_mode_auto(void)
- {
-    plane.set_mode(plane.mode_auto,ModeReason::GCS_FAILSAFE);
- }
-
-#endif // AP_ADVANCEDFAILSAFE_ENABLED
+#endif // ADVANCED_FAILSAFE
